@@ -24,24 +24,56 @@ export async function POST(req: Request) {
       isVerified: true
     })
 
+    const verifyCode = Math.floor(100000 + Math.random() * 900000).toString()
+
     if (existingUserVerifiedByEmail) {
-      return Response.json(
-        { success: false, message: 'Email already exists' },
-        { status: 400 }
-      )
-    }else{
+      if (existingUserVerifiedByEmail.isVerified) {
+        return Response.json(
+          { success: false, message: 'Email already exists' },
+          { status: 400 }
+        )
+      } else {
+        const hashedPassword = await bcrypt.hash(password, 10)
+        existingUserVerifiedByEmail.password = hashedPassword
+        existingUserVerifiedByEmail.verifyCode = verifyCode
+        existingUserVerifiedByEmail.verifyCodeExpiry = new Date(
+          Date.now() + 360000
+        )
+        await existingUserVerifiedByEmail.save()
+      }
+    } else {
       const hashedPassword = await bcrypt.hash(password, 10)
-      const user = new UserModel({
+      const expiryDate = new Date()
+      expiryDate.setHours(expiryDate.getHours() + 1)
+
+      const newUser = new UserModel({
         username,
         email,
         password: hashedPassword,
-        verifyCode: Math.floor(100000 + Math.random() * 900000).toString(),
-        verifyCodeExpiry: new Date(Date.now() + 3600000),
+        verifyCode,
+        verifyCodeExpiry: expiryDate,
         isVerified: false,
         isAcceptingMessages: true,
         messages: []
       })
+      await newUser.save()
     }
+    const emailResponse = await sendVerificationEmail(
+      email,
+      username,
+      verifyCode
+    )
+    if (!emailResponse.success) {
+      return Response.json(
+        { success: false, message: emailResponse.message },
+        { status: 400 }
+      )
+    }
+
+    return Response.json(
+      { success: true, message: 'Sign-up successful please verify your email' },
+      { status: 200 }
+    )
   } catch (error) {
     console.error('Error during sign-up:', error)
     return new Response(
